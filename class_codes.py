@@ -67,5 +67,7 @@ for img_id, img, label in tqdm(dataloader, total=len(dataloader), desc="statisti
     i = i + 1 
     
 code_counts = code_counts.sum(dim=0)  # 所有循环的统计结果累加  
-top20_codes = torch.topk(code_counts, k=20, dim=1).cpu().numpy()
+top20_codes_num = torch.topk(code_counts, k=20, dim=1).values.cpu().numpy()
+top20_codes = torch.topk(code_counts, k=20, dim=1).indices.cpu().numpy()
 np.save('data/top20_codes.npy', top20_codes)
+np.save('data/top20_codes_num.npy', top20_codes_num)
