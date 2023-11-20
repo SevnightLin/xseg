@@ -12,7 +12,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from omegaconf import OmegaConf
 from PIL import Image
-from torch.utils.tensorboard import SummaryWriter
 from torchnet.meter import MovingAverageValueMeter
 from tqdm import tqdm
 from libs.utils import makedirs,get_device
