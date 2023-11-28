@@ -7,7 +7,7 @@ import torch.nn as nn
 import sys
 
 
-from xseg import MyParameter, normalize_sum_clamp
+from .parameter import MyParameter, normalize_sum_clamp
 
 import time
 

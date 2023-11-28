@@ -1,3 +1,4 @@
+#增加极小值
 from __future__ import absolute_import, division, print_function
 
 import json
@@ -18,58 +19,21 @@ from tqdm import tqdm
 
 from libs.datasets import get_dataset
 from models.backbone import DeepLabV2_ResNet101_MSC
-from libs.utils import get_device, resize_labels
+from libs.utils import DenseCRF, PolynomialLR, scores
 
-# from models.xseg import Discretization, Graph ,Predictor ,Matcher
+from libs.utils import get_device,resize_labels
+from torch_geometric.data.data import Data
+from torch_geometric.transforms import ToSparseTensor 
+from models.xseg import Discretization, Graph ,Predictor ,Matcher
 import time
-
-def get_patch(code:torch.Tensor,patch:torch.Tensor,device):
-    eye = torch.eye(128).to(device)
-    patch = eye[code]
-    shifted = torch.zeros_like(code).to(device)
-    # right
-    shifted[:,:,1:] = code[:,:,:-1]
-    shifted[:,:,:1] = code[:,:,:1]
-    patch = patch + eye[shifted]
-    # right-bottom
-    shifted[:,1:,:] = shifted[:,:-1,:]
-    shifted[:,:1,:] = shifted[:,:1,:]
-    patch = patch + eye[shifted]
-    # bottom
-    shifted[:,1:,:] = code[:,:-1,:]
-    shifted[:,:1,:] = code[:,:1,:]
-    patch = patch + eye[shifted]
-    # bottom-left
-    shifted[:,:,:-1] = shifted[:,:,1:]
-    shifted[:,:,-1] = shifted[:,:,-1]
-    patch = patch + eye[shifted]
-    # left
-    shifted[:,:,:-1] = code[:,:,1:]
-    shifted[:,:,-1] = code[:,:,-1]
-    patch = patch + eye[shifted]
-    # left-top
-    shifted[:,:-1,:] = shifted[:,1:,:]
-    shifted[:,-1,:] = shifted[:,-1,:]
-    patch = patch + eye[shifted]
-    # top
-    shifted[:,:-1,:] = code[:,1:,:]
-    shifted[:,-1,:] = code[:,-1,:]
-    patch = patch + eye[shifted]
-    # top-right
-    shifted[:,:,1:] = shifted[:,:,:-1]
-    shifted[:,:,:1] = shifted[:,:,:1]
-    patch = patch + eye[shifted]
-
-    return patch
 
 def train():
     config_path = 'configs/voc12.yaml'
-    checkpoint_dir = 'data/checkpoints_nopatch'
-    writer = SummaryWriter('logs')
+    checkpoint_dir = 'data/checkpoints/graph'
+    writer = SummaryWriter('logs/graph')
     CONFIG = OmegaConf.load(config_path)
-    # os.environ['CUDA_VISIBLE_DEVICES'] = '1'
     # device = get_device('cuda')
-    device = torch.device('cuda:1')
+    device = torch.device('cuda')
     torch.backends.cudnn.benchmark = True
     
     # Dataset
@@ -89,7 +53,7 @@ def train():
     # DataLoader
     loader = torch.utils.data.DataLoader(
         dataset=dataset,
-        batch_size=CONFIG.SOLVER.BATCH_SIZE.TRAIN,
+        batch_size=CONFIG.SOLVER.BATCH_SIZE.TEST,
         num_workers=CONFIG.DATALOADER.NUM_WORKERS,
         shuffle=True,
     )
@@ -102,19 +66,32 @@ def train():
     backbone.eval()
     backbone.to(device)
 
-    codebook_tensor: torch.Tensor = torch.load('data/cluster_128_from_1000000.pth')
-    codebook_tensor = codebook_tensor.to(device)
-    model = nn.Conv2d(2048,21,1)
-    # state_dict_ = torch.load('data/checkpoints/checkpoint_10000.pth')
-    # model.load_state_dict(state_dict_)
-    model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=CONFIG.SOLVER.LR, weight_decay=CONFIG.SOLVER.WEIGHT_DECAY)
+    discretization = Discretization(128,2048,True,[0, 1])
+    # discretization.to(device)
+
+    discretization.initial_vocabulary('data/cluster_128_from_1000000.pth')
+
+    graph = Graph()
+    # graph.to(device)
+    init : torch.Tensor = torch.load('data/init.pth')
+    init = torch.round(init)
+    graph.vertex.copy_(init)
+    matcher = Matcher()
+    # matcher.to(device)
+    predictor = Predictor(
+        # backbone=backbone,
+        discretization=discretization,
+        graph=graph,
+        matcher=matcher
+    )
+    predictor.to(device)
+    optimizer = torch.optim.Adam(predictor.parameters(), lr=CONFIG.SOLVER.LR, weight_decay=CONFIG.SOLVER.WEIGHT_DECAY)
 
     criterion = nn.CrossEntropyLoss(ignore_index=CONFIG.DATASET.IGNORE_LABEL)
     criterion.to(device)
 
     average_loss = MovingAverageValueMeter(CONFIG.SOLVER.AVERAGE_LOSS)
-    model.train()
+    predictor.train()
 
     for iteration in tqdm(
         range(1, CONFIG.SOLVER.ITER_MAX + 1),
@@ -137,21 +114,15 @@ def train():
             images = images.to(device)
             with torch.no_grad():
                 feat = backbone(images)
-            # feat = feat.permute(0,2,3,1)
-            # ingredients = torch.cdist(feat, codebook_tensor).argmin(dim = 3) #[bs,h,w]
-            # feat_patch = torch.zeros(5,41,41,128).to(device)
-            # feat_patch = get_patch(ingredients,feat_patch,device)
-            # feat_norm = F.normalize(feat_patch,dim=-1)
-            # feat_norm = feat_norm.permute(0,3,1,2)
-            # logits = model(feat_norm)
-            logits = model(feat)
+            sim = predictor(feat)
+            sim = sim.permute(0,3,1,2)
             # Loss
             iter_loss = 0
             # for logit in logits:
                 # Resize labels for {100%, 75%, 50%, Max} logits
-            _, _, H, W = logits.shape
+            _, _, H, W = sim.shape
             labels_ = resize_labels(labels, size=(H, W))
-            iter_loss = criterion(logits, labels_.to(device))
+            iter_loss += criterion(sim, labels_.to(device))
 
             # Propagate backward (just compute gradients)
             iter_loss /= CONFIG.SOLVER.ITER_SIZE
@@ -191,12 +162,12 @@ def train():
         # Save a model
         if iteration % CONFIG.SOLVER.ITER_SAVE == 0:
             torch.save(
-                model.state_dict(),
+                predictor.state_dict(),
                 os.path.join(checkpoint_dir, "checkpoint_{}.pth".format(iteration)),
             )
-    # torch.save(
-    #     model.state_dict(), os.path.join(checkpoint_dir, "checkpoint_final.pth")
-    # )
+    torch.save(
+        predictor.state_dict(), os.path.join(checkpoint_dir, "checkpoint_final.pth")
+    )
 
 if __name__ == '__main__':
     train()

@@ -14,6 +14,7 @@ import torchvision.transforms.functional as TF
 from torchvision.utils import make_grid
 from omegaconf import OmegaConf
 from libs.datasets import get_dataset
+from libs.utils import resize_labels
 from models.backbone import DeepLabV2_ResNet101_MSC
 
 config_path = 'configs/voc12.yaml'
@@ -65,11 +66,24 @@ for img_id,img, target in tqdm(dataloader, total=len(dataloader), desc="loading"
     img = img.to(device)
     with torch.no_grad():
         feat = backbone(img)    #[bs,2048,41,41]
+    _,_,h,w, = feat.shape
     feat= feat.permute(0,2,3,1)
     dist = torch.cdist(feat, codebook_tensor)
     min_dist, match = dist.min(dim=-1)
-    # np.save('data/npy/{}.npy'.format(img_id),match.squeeze(0).cpu().numpy())
-    arr = match.squeeze(0).cpu().numpy()
+    # drow match
+    # arr = match.squeeze(0).cpu().numpy()
+    # resized_array = np.repeat(np.repeat(arr, 8, axis=0), 8, axis=1)  
+  
+    # fig, ax = plt.subplots(figsize=(8, 8))  
+    # ax.imshow(resized_array, cmap='cool',alpha=0.5)  
+    # for i in range(arr.shape[0]):  
+    #     for j in range(arr.shape[1]):  
+    #         ax.text(8*j+4, 8*i+4, str(arr[i, j]), ha='center', va='center', color='black', fontsize=4)  
+    # ax.axis('off')
+    # plt.savefig('data/image_code/{}.png'.format(img_id[0]), dpi=300) 
+    label = resize_labels(target,size=(w,h))
+    # drow match
+    arr = label.squeeze(0).numpy()
     resized_array = np.repeat(np.repeat(arr, 8, axis=0), 8, axis=1)  
   
     fig, ax = plt.subplots(figsize=(8, 8))  
@@ -78,23 +92,7 @@ for img_id,img, target in tqdm(dataloader, total=len(dataloader), desc="loading"
         for j in range(arr.shape[1]):  
             ax.text(8*j+4, 8*i+4, str(arr[i, j]), ha='center', va='center', color='black', fontsize=4)  
     ax.axis('off')
-    plt.savefig('data/image_code/{}.png'.format(img_id[0]), dpi=300) 
-    # match = match.unsqueeze(0).float()
-    # match = F.interpolate(
-    #         match, size=(H, W), mode="nearest"
-    #     )
-    # arr = match.squeeze(0).squeeze(0).cpu().numpy()
-    # np.save('data/npy/{}_in.npy'.format(img_id),arr)
-    # arr = arr.astype(np.uint8)
-
-    # color_image = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)  
-  
-    # # 可以选择将灰度图的值映射到RGB颜色空间的不同范围，这里将灰度值映射到0-255的范围  
-    # color_image = cv2.applyColorMap(color_image, cv2.COLORMAP_JET)  
-    
-    # plt.imshow(color_image)  
-    # plt.axis('off')  # 不显示坐标轴  
-    # plt.savefig('data/nearest_rgb/{}_codes.png'.format(img_id[0]))  
+    plt.savefig('data/image_code_label/{}.png'.format(img_id[0]), dpi=300) 
     i = i + 1
     if i == 100:
         break

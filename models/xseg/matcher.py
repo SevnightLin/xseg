@@ -5,7 +5,7 @@ import logging
 import torch
 import torch.nn as nn
 
-from gnn import GCN, SAGE
+from .gcn import GCN
 from torch_geometric.data.data import Data
 from torch_geometric.transforms import ToSparseTensor 
 import time
@@ -72,16 +72,25 @@ class Matcher(nn.Module):
             # out = torch.exp(out)
             out_class[t] = out.reshape(105)
 
+        # map = torch.zeros(128,128,128,128,128).to(instance_nodes.device)
+        dict = {}
         for i in range(bs):
             for j in range(h):
                 for k in range(w):
                     node_ingredient = instance_nodes[i][j][k][:]
                     node_ingredient = node_ingredient.long()
-                    x = self.embedding(node_ingredient)
-                    data_instance = Data(x = x, edge_index=edge_index)
-                    data_instance = transform(data_instance)
-                    out_instance = self.gnn(data_instance.x,data_instance.adj_t)
-                    # out_instance = torch.exp(out_instance)
-                    out_instance = out_instance.reshape(105)
-                    sim[i][j][k] = self._inner_product(out_instance,out_class)
+                    key = tuple(node_ingredient.cpu().tolist())
+                    # if(map[node_ingredient[0]][node_ingredient[1]][node_ingredient[2]][node_ingredient[3]][node_ingredient[4]]  == 0):
+                    if dict.get(key,None) == None:
+                        x = self.embedding(node_ingredient)
+                        data_instance = Data(x = x, edge_index=edge_index)
+                        data_instance = transform(data_instance)
+                        out_instance = self.gnn(data_instance.x,data_instance.adj_t)
+                        # out_instance = torch.exp(out_instance)
+                        out_instance = out_instance.reshape(105)
+                        sim[i][j][k] = self._inner_product(out_instance,out_class)
+                        dict[key] = sim[i][j][k].cpu()
+                    else:
+                        sim[i][j][k] = dict[key].to(instance_nodes.device)
+
         return sim

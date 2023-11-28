@@ -35,11 +35,11 @@ MODEL:
 
 SOLVER:
     BATCH_SIZE:
-        TRAIN: 5
+        TRAIN: 8
         TEST: 1
-    ITER_MAX: 50000
+    ITER_MAX: 60000
     ITER_SIZE: 2
-    ITER_SAVE: 2500
+    ITER_SAVE: 5000
     ITER_TB: 50
     LR_DECAY: 10
     LR: 2.5e-4

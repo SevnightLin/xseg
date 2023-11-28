@@ -5,10 +5,10 @@ import logging
 import torch
 import torch.nn as nn
 
-from discretization import Discretization
-from graph import Graph
-from matcher import Matcher
-from xseg import MyParameter, normalize_sum_clamp
+from .discretization import Discretization
+from .graph import Graph
+from .matcher import Matcher
+from .parameter import MyParameter, normalize_sum_clamp
 from torch_geometric.data.data import Data
 from torch_geometric.transforms import ToSparseTensor 
 import collections
